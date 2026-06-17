@@ -26,7 +26,7 @@ module Service
 
         def install
             msg(:info, 'SlurmWorker::install')
-            bash('apt update && apt install munge libmunge-dev slurmd slurm-wlm-basic-plugins -y')
+            bash('apt update && apt install munge libmunge-dev slurmd slurm-wlm-basic-plugins sssd sssd-ldap libnss-sss libpam-sss ldap-utils -y')
             install_nvidia_drivers
             bash('systemctl disable slurmd')
             msg(:info, 'Installation completed successfully')
@@ -179,7 +179,98 @@ module Service
             bash('systemctl is-active slurmd')
             msg(:info, 'slurmd started')
 
+            configure_ldap
+
             msg(:info, 'Configuration completed successfully')
+        end
+
+        def ldap_base_dn
+            domain = ONEAPP_LDAP_DOMAIN.to_s.strip
+            return '' if domain.empty?
+
+            domain.include?('=') ? domain : domain.split('.').map { |p| "dc=#{p}" }.join(',')
+        end
+
+        def ldap_bind_dn
+            name = ONEAPP_LDAP_BIND_USER.to_s.strip
+            return '' if name.empty?
+
+            name.include?('=') ? name : "cn=#{name},#{ldap_base_dn}"
+        end
+
+        def ldap_client_enabled?
+            !ONEAPP_LDAP_URL.to_s.empty? && !ONEAPP_LDAP_DOMAIN.to_s.empty?
+        end
+
+        def configure_ldap
+            unless ldap_client_enabled?
+                msg(:info, 'LDAP client not configured, skipping SSSD setup')
+                return
+            end
+
+            msg(:info, 'Configuring SSSD LDAP client')
+
+            bind_lines = ''
+            unless ldap_bind_dn.empty?
+                bind_lines = <<~BIND
+                    ldap_default_bind_dn = #{ldap_bind_dn}
+                    ldap_default_authtok_type = password
+                BIND
+                bind_lines += "ldap_default_authtok = #{ONEAPP_LDAP_BIND_PASSWORD}\n" unless ONEAPP_LDAP_BIND_PASSWORD.empty?
+            end
+
+            sssd_conf = <<~SSSD
+                [sssd]
+                services = nss, pam
+                config_file_version = 2
+                domains = slurm
+
+                [domain/slurm]
+                id_provider = ldap
+                auth_provider = ldap
+                ldap_uri = #{ONEAPP_LDAP_URL}
+                ldap_search_base = #{ldap_base_dn}
+                ldap_user_search_base = ou=People,#{ldap_base_dn}
+                ldap_group_search_base = ou=Groups,#{ldap_base_dn}
+                cache_credentials = True
+                enumerate = False
+                #{bind_lines}ldap_id_use_start_tls = false
+                ldap_tls_reqcert = never
+            SSSD
+
+            File.write('/etc/sssd/sssd.conf', sssd_conf)
+            FileUtils.chmod(0o600, '/etc/sssd/sssd.conf')
+
+            ensure_nsswitch_sss
+
+            bash <<~SCRIPT
+                export DEBIAN_FRONTEND=noninteractive
+                pam-auth-update --enable mkhomedir
+            SCRIPT
+
+            bash('systemctl enable sssd')
+            bash('systemctl restart sssd')
+            bash('systemctl is-active sssd')
+            msg(:info, 'SSSD LDAP client configured successfully')
+        end
+
+        def ensure_nsswitch_sss
+            nsswitch_path = '/etc/nsswitch.conf'
+            lines = File.readlines(nsswitch_path)
+            databases = %w[passwd group shadow]
+
+            databases.each do |db|
+                lines.map! do |line|
+                    next line unless line =~ /^#{db}:/
+
+                    fields = line.strip.split(/\s+/)
+                    next line if fields.include?('sss')
+
+                    "#{db}:\t#{fields[1..].join(' ')} sss\n"
+                end
+            end
+
+            File.write(nsswitch_path, lines.join)
         end
 
         def bootstrap
