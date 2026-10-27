@@ -41,6 +41,8 @@ module OneSlurm
                 SlurmdPidFile=/var/run/slurm/slurmd.pid
 
                 SlurmctldParameters=enable_configless
+                # Rebooted workers rejoin on their own (drained nodes stay drained)
+                ReturnToService=2
                 #{infiniband_config}
 
                 MaxNodeCount=100
@@ -58,7 +60,6 @@ module OneSlurm
             File.write('/etc/slurm/gres.conf', gres_conf)
 
             cgroup_conf = <<~CONF
-                CgroupAutomount=yes
                 ConstrainDevices=yes
             CONF
             File.write('/etc/slurm/cgroup.conf', cgroup_conf)

@@ -95,6 +95,8 @@ module OneSlurm
                 apt update
                 apt install slapd -y
                 rm -f #{debconf_file}
+                # slapd has no configuration yet; local LDAP mode enables it in configure.
+                systemctl disable --now slapd
             SCRIPT
         end
 
@@ -307,7 +309,6 @@ module OneSlurm
 
             sssd_conf = <<~SSSD
                 [sssd]
-                services = nss, pam
                 config_file_version = 2
                 domains = slurm
 
