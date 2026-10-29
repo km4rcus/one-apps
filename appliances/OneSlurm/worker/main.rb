@@ -39,7 +39,7 @@ module Service
 
         def install
             msg(:info, 'SlurmWorker::install')
-            bash('apt update && apt install munge libmunge-dev slurmd slurm-client slurm-wlm-basic-plugins sssd sssd-ldap libnss-sss libpam-sss ldap-utils nfs-common -y')
+            bash('apt update && apt install munge libmunge-dev slurmd slurm-client slurm-wlm-basic-plugins slurm-wlm-nvml-plugin sssd sssd-ldap libnss-sss libpam-sss ldap-utils nfs-common -y')
             install_infiniband_packages
             install_nvidia_drivers
             bash('systemctl disable slurmd')
