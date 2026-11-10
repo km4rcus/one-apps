@@ -27,6 +27,7 @@ module OneSlurm
                 SlurmctldHost=slurm-one-controller
                 AuthType=auth/munge
                 ProctrackType=proctrack/cgroup
+                ReturnToService=2
                 SchedulerType=sched/backfill
                 SelectType=select/cons_tres
                 GresTypes=gpu
